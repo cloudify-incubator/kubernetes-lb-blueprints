@@ -67,6 +67,8 @@ node_templates:
         target: cloudify_load_cloud_config
       - type: cloudify.aws.relationships.instance_connected_to_eni
         target: kubernetes_load_nic
+      - type: cloudify.aws.relationships.instance_connected_to_elastic_ip
+        target: k8s_load_public_ip
     interfaces:
       cloudify.interfaces.lifecycle:
         create:
@@ -105,11 +107,17 @@ node_templates:
       aws_config: *aws_config
     relationships:
       - type: cloudify.aws.relationships.connected_to_subnet
-        target: private_subnet
+        target: public_subnet
       - type: cloudify.aws.relationships.connected_to_security_group
         target: ssh_group
       - type: cloudify.aws.relationships.connected_to_security_group
         target: kubernetes_security_group
+
+  k8s_load_public_ip:
+    type: cloudify.aws.nodes.ElasticIP
+    properties:
+      aws_config: *aws_config
+      domain: vpc
 
   kubernetes_security_group:
     type: cloudify.aws.nodes.SecurityGroup

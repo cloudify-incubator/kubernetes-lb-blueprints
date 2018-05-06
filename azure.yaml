@@ -168,6 +168,21 @@ node_templates:
       target: resource_group
     - type: cloudify.azure.relationships.ip_configuration_connected_to_subnet
       target: subnet
+    - type: cloudify.azure.relationships.ip_configuration_connected_to_public_ip
+      target: k8s_load_public_ip
+
+
+  k8s_load_public_ip:
+    type: cloudify.azure.nodes.network.PublicIPAddress
+    properties:
+      location: { get_secret: location }
+      azure_config: *azure_config
+      retry_after: { get_input: retry_after }
+      resource_config:
+        publicIPAllocationMethod: Static
+    relationships:
+    - type: cloudify.azure.relationships.contained_in_resource_group
+      target: resource_group
 
   subnet:
     type: cloudify.azure.nodes.network.Subnet
