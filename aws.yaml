@@ -8,7 +8,7 @@ imports:
   - plugin:cloudify-diamond-plugin
   - plugin:cloudify-fabric-plugin
   - plugin:cloudify-utilities-plugin
-  - plugin:cloudify-aws-plugin
+  - plugin:cloudify-awssdk-plugin
   - imports/kubernetes.yaml
   - imports/cloud-config.yaml
 
@@ -39,16 +39,15 @@ inputs:
 
 dsl_definitions:
 
-    aws_config: &aws_config
-      aws_access_key_id: { get_secret: aws_access_key_id }
-      aws_secret_access_key: { get_secret: aws_secret_access_key }
-      ec2_region_name: { get_secret: ec2_region_name }
-      ec2_region_endpoint: { get_secret: ec2_region_endpoint }
+  client_config: &client_config
+    aws_access_key_id: { get_secret: aws_access_key_id }
+    aws_secret_access_key: { get_secret: aws_secret_access_key }
+    region_name: { get_secret: ec2_region_name }
 
 node_templates:
 
   k8s_load_host:
-    type: cloudify.aws.nodes.Instance
+    type: cloudify.nodes.aws.ec2.Instances
     capabilities:
       scalable:
         properties:
@@ -57,26 +56,33 @@ node_templates:
       agent_config:
         install_method: remote
         user: { get_input: agent_user }
-        port: 22
         key: { get_secret: agent_key_private }
-      aws_config: *aws_config
-      image_id: { get_input: ami }
-      instance_type: { get_input: instance_type }
+      resource_config:
+        MaxCount: 1
+        MinCount: 1
+        ImageId: { get_input: ami }
+        InstanceType: { get_input: instance_type }
+        kwargs:
+          BlockDeviceMappings:
+          - DeviceName: '/dev/sda1'
+            Ebs:
+              DeleteOnTermination: True
+          Placement:
+            AvailabilityZone: { get_secret: availability_zone }
+          UserData: { get_attribute: [ cloudify_load_cloud_config, cloud_config ] }
+      client_config: *client_config
     relationships:
       - type: cloudify.relationships.depends_on
-        target: cloudify_load_cloud_config
-      - type: cloudify.aws.relationships.instance_connected_to_eni
         target: kubernetes_load_nic
-      - type: cloudify.aws.relationships.instance_connected_to_elastic_ip
+      - type: cloudify.relationships.depends_on
         target: k8s_load_public_ip
+      - type: cloudify.relationships.depends_on
+        target: security_group_rules
+      - type: cloudify.relationships.depends_on
+        target: cloudify_load_cloud_config
+      - type: cloudify.relationships.depends_on
+        target: centos_core_ami
     interfaces:
-      cloudify.interfaces.lifecycle:
-        create:
-          implementation: aws.cloudify_aws.ec2.instance.create
-          inputs:
-            args:
-              placement: { get_secret: availability_zone }
-              user_data: { get_attribute: [ cloudify_load_cloud_config, cloud_config ] }
       cloudify.interfaces.monitoring_agent:
         install:
           implementation: diamond.diamond_agent.tasks.install
@@ -101,77 +107,123 @@ node_templates:
                     hyperkube:
                       name: hyperkube
 
-  kubernetes_load_nic:
-    type: cloudify.aws.nodes.Interface
+  centos_core_ami:
+    type: cloudify.nodes.aws.ec2.Image
     properties:
-      aws_config: *aws_config
-    relationships:
-      - type: cloudify.aws.relationships.connected_to_subnet
-        target: public_subnet
-      - type: cloudify.aws.relationships.connected_to_security_group
-        target: ssh_group
-      - type: cloudify.aws.relationships.connected_to_security_group
-        target: kubernetes_security_group
+      resource_config:
+        kwargs:
+          Filters:
+          - Name: name
+            Values:
+            - 'CentOS 7.3.1611 x86_64 with cloud-init (HVM)'
+          - Name: owner-id
+            Values:
+            - '057448758665'
+      client_config: *client_config
 
   k8s_load_public_ip:
-    type: cloudify.aws.nodes.ElasticIP
+    type: cloudify.nodes.aws.ec2.ElasticIP
     properties:
-      aws_config: *aws_config
-      domain: vpc
-
-  kubernetes_security_group:
-    type: cloudify.aws.nodes.SecurityGroup
-    properties:
-      aws_config: *aws_config
-      description: Security group for Kubernetes Cluster
-      use_external_resource: true
-      resource_id: { get_input: node_security_group }
+      resource_config:
+        kwargs:
+          Domain: 'vpc'
+      client_config: *client_config
     relationships:
-      - type: cloudify.aws.relationships.security_group_contained_in_vpc
-        target: vpc
+    - type: cloudify.relationships.depends_on
+      target: kubernetes_load_nic
 
-  ssh_group:
-    type: cloudify.aws.nodes.SecurityGroup
+  kubernetes_load_nic:
+    type: cloudify.nodes.aws.ec2.Interface
     properties:
-      aws_config: *aws_config
-      description: SSH Group
-      use_external_resource: true
-      resource_id: { get_input: node_ssh_group }
+      client_config: *client_config
+      resource_config:
+        kwargs:
+          Description: Created by haproxy-blueprint aws-blueprint.yaml.
+          SubnetId: { get_attribute: [ public_subnet, aws_resource_id] }
+          Groups:
+          - { get_attribute: [ security_group, aws_resource_id ] }
     relationships:
-      - type: cloudify.aws.relationships.security_group_contained_in_vpc
-        target: vpc
+    - type: cloudify.relationships.depends_on
+      target: public_subnet
+    - type: cloudify.relationships.depends_on
+      target: security_group
+
+  security_group_rules:
+    type: cloudify.nodes.aws.ec2.SecurityGroupRuleIngress
+    properties:
+      client_config: *client_config
+      resource_config:
+        kwargs:
+          IpPermissions:
+          - IpProtocol: tcp
+            FromPort: 0
+            ToPort: 65535
+            IpRanges:
+            - CidrIp: 0.0.0.0/0
+          - IpProtocol: udp
+            FromPort: 0
+            ToPort: 65535
+            IpRanges:
+            - CidrIp: 0.0.0.0/0
+          - IpProtocol: icmp
+            FromPort: -1
+            ToPort: -1
+            IpRanges:
+            - CidrIp: 0.0.0.0/0
+    relationships:
+    - type: cloudify.relationships.contained_in
+      target: security_group
+
+  security_group:
+    type: cloudify.nodes.aws.ec2.SecurityGroup
+    properties:
+      resource_config:
+        kwargs:
+          GroupName: KubernetesLBGroup
+          Description: Created by kubernetes-lb-blueprint aws.yaml.
+          VpcId: { get_attribute: [ vpc, aws_resource_id] }
+      client_config: *client_config
+    relationships:
+    - type: cloudify.relationships.depends_on
+      target: vpc
 
   public_subnet:
-    type: cloudify.aws.nodes.Subnet
+    type: cloudify.nodes.aws.ec2.Subnet
     properties:
-      aws_config: *aws_config
+      client_config: *client_config
       use_external_resource: true
       resource_id: { get_secret: public_subnet_id }
-      cidr_block: N/A
-      availability_zone: N/A
+      resource_config:
+        kwargs:
+          CidrBlock: 'N/A'
+          AvailabilityZone: 'N/A'
     relationships:
-      - type: cloudify.aws.relationships.subnet_contained_in_vpc
-        target: vpc
+    - type: cloudify.relationships.depends_on
+      target: vpc
 
   private_subnet:
-    type: cloudify.aws.nodes.Subnet
+    type: cloudify.nodes.aws.ec2.Subnet
     properties:
-      aws_config: *aws_config
+      client_config: *client_config
       use_external_resource: true
       resource_id: { get_secret: private_subnet_id }
-      cidr_block:  N/A
-      availability_zone:  N/A
+      resource_config:
+        kwargs:
+          CidrBlock: 'N/A'
+          AvailabilityZone: 'N/A'
     relationships:
-      - type: cloudify.aws.relationships.subnet_contained_in_vpc
-        target: vpc
+    - type: cloudify.relationships.depends_on
+      target: vpc
 
   vpc:
-    type: cloudify.aws.nodes.VPC
+    type: cloudify.nodes.aws.ec2.Vpc
     properties:
-      aws_config: *aws_config
+      client_config: *client_config
       use_external_resource: true
       resource_id: { get_secret: vpc_id }
-      cidr_block: N/A
+      resource_config:
+        kwargs:
+          CidrBlock: 'N/A'
 
 groups:
   k8s_load_group:
