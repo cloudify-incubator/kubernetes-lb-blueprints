@@ -5,18 +5,6 @@ inputs:
   labels:
     default: {}
 
-  cfy_tenant:
-    type: string
-    default: { get_secret: cfy_tenant }
-
-  cfy_password:
-    type: string
-    default: { get_secret: cfy_password }
-
-  cfy_user:
-    type: string
-    default: { get_secret: cfy_user }
-
 node_types:
 
   cloudify.nodes.ApplicationServer.kubernetes.LoadBalancer:
