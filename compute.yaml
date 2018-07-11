@@ -1,0 +1,80 @@
+tosca_definitions_version: cloudify_dsl_1_3
+
+description: >
+  This blueprint creates a Kubernetes Cluster.
+
+imports:
+  - http://www.getcloudify.org/spec/cloudify/4.3/types.yaml
+  - plugin:cloudify-diamond-plugin
+  - plugin:cloudify-fabric-plugin
+  - plugin:cloudify-utilities-plugin
+  - imports/kubernetes.yaml
+
+inputs:
+
+  k8s_load_host_ip:
+    type: string
+
+  agent_user:
+    type: string
+
+node_templates:
+
+  k8s_load_host:
+    type: cloudify.nodes.Compute
+    capabilities:
+      scalable:
+        properties:
+          default_instances: 1
+    properties:
+      agent_config:
+        install_method: remote
+        user: { get_input: agent_user }
+        port: 22
+        key: { get_secret: agent_key_private }
+      ip: { get_input: k8s_load_host_ip }
+    interfaces:
+      cloudify.interfaces.monitoring_agent:
+        install:
+          implementation: diamond.diamond_agent.tasks.install
+          inputs:
+            diamond_config:
+              interval: 1
+        start: diamond.diamond_agent.tasks.start
+        stop: diamond.diamond_agent.tasks.stop
+        uninstall: diamond.diamond_agent.tasks.uninstall
+      cloudify.interfaces.monitoring:
+        start:
+          implementation: diamond.diamond_agent.tasks.add_collectors
+          inputs:
+            collectors_config:
+              ProcessResourcesCollector:
+                config:
+                  enabled: true
+                  unit: B
+                  measure_collector_time: true
+                  cpu_interval: 0.5
+                  process:
+                    hyperkube:
+                      name: hyperkube
+
+groups:
+  k8s_load_group:
+    members:
+      - k8s_load_host
+
+policies:
+  kubernetes_load_vms_scaling_policy:
+    type: cloudify.policies.scaling
+    properties:
+      default_instances:  1
+    targets: [k8s_load_group]
+
+outputs:
+  deployment-type:
+    description: Deployment Type, Needed In order to determine if the kubernetes host is normal node or load balancer
+    value: load
+
+  deployment-node-data-type:
+    description: Cloudify node type needed in kubernetes cloudify provider
+    value: cloudify.nodes.ApplicationServer.kubernetes.LoadBalancer
