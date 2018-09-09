@@ -106,6 +106,8 @@ if __name__ == '__main__':
     with NamedTemporaryFile(delete=False) as temp_config:
         temp_config.write(config_text)
     # Test the temporary file.
+    execute_command('sudo chmod {0} {1}'
+                    .format('0777', temp_config))
     out = execute_command('sudo /usr/sbin/haproxy -f {0} -c'
                           .format(temp_config.name))
     if not out:
