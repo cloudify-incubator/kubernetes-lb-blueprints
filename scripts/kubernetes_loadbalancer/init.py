@@ -105,13 +105,13 @@ if __name__ == '__main__':
     # Render the template and write the rendered file to a temporary file.
     with NamedTemporaryFile(delete=False) as temp_config:
         temp_config.write(config_text)
-        # Test the temporary file.
-        execute_command('sudo chmod {0} {1}'.format('0777', temp_config.name))
-        out = execute_command('sudo /usr/sbin/haproxy -f {0} -c'.format(temp_config.name))
-        if not out:
-            raise NonRecoverableError('Invalid config.')
-        # Replace the HAProxy configuration file with the temporary file.
-        execute_command('sudo cp {0} {1}'.format(temp_config.name, haproxy_cfg_path))
+    # Test the temporary file.
+    execute_command('sudo chmod {0} {1}'.format('0777', temp_config.name))
+    out = execute_command('sudo /usr/sbin/haproxy -f {0} -c'.format(temp_config.name))
+    if not out:
+        raise NonRecoverableError('Invalid config.')
+    # Replace the HAProxy configuration file with the temporary file.
+    execute_command('sudo cp {0} {1}'.format(temp_config.name, haproxy_cfg_path))
 
     execute_command('sudo chmod {0} {1}'.format('0600', haproxy_cfg_path))
     # Reload the HAProxy process.
