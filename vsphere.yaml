@@ -48,7 +48,7 @@ inputs:
     type: string
     description: >
       "CentOS 7 template name"
-    default: "CentOS-7.2-x86_64-1511-tmpl"
+    default: "CentOS-7.4-x86-64-1708-tmpl"
 
   cpus:
     type: integer
