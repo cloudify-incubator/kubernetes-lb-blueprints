@@ -52,7 +52,8 @@ def execute_command(_command, extra_args=None):
     subprocess_args = {
         'args': _command.split(),
         'stdout': subprocess.PIPE,
-        'stderr': subprocess.PIPE
+        'stderr': subprocess.PIPE,
+        'shell': True
     }
     if extra_args is not None and isinstance(extra_args, dict):
         subprocess_args.update(extra_args)
