@@ -115,7 +115,7 @@ if __name__ == '__main__':
             break
         counter += 1
         sleep(1)
-        if counter == 10:
+        if counter == 30:
             raise NonRecoverableError('Invalid config.')
     # Replace the HAProxy configuration file with the temporary file.
     execute_command('sudo cp {0} {1}'.format(temp_config.name, haproxy_cfg_path))
